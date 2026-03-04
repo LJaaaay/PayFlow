@@ -257,12 +257,12 @@ function Dashboard() {
           <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, flex:1, minWidth:280 }}>
             <div style={{ color:"#aaa", fontSize:12, marginBottom:12, textTransform:"uppercase" }}>SAP Status</div>
             {(d.sapData||[]).length > 0
-              ? <PieChart width={260} height={200}>
-                  <Pie data={d.sapData} cx={130} cy={90} outerRadius={80} dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+              ? <PieChart width={280} height={220}>
+                  <Pie data={d.sapData} cx={140} cy={90} outerRadius={75} dataKey="value">
                     {(d.sapData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
+                  <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
+                  <Legend wrapperStyle={{ color:"#ccc", fontSize:13 }} />
                 </PieChart>
               : <div style={{ color:"#555", fontSize:13, paddingTop:60, textAlign:"center" }}>Sin datos SAP</div>
             }
@@ -274,7 +274,7 @@ function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                 <XAxis dataKey="name" tick={{ fill:"#aaa", fontSize:11 }} />
                 <YAxis tick={{ fill:"#aaa", fontSize:11 }} />
-                <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
+                <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
                 <Bar dataKey="value" fill="#6366f1" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -298,7 +298,7 @@ function Dashboard() {
               label={({ name, value }) => `${name} (${value})`}>
               {(d.dueDateData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
             </Pie>
-            <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
+            <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
             <Legend wrapperStyle={{ color:"#aaa", fontSize:13 }} />
           </PieChart>
         </div>
@@ -379,7 +379,7 @@ function Dashboard() {
               <XAxis type="number" tick={{ fill:"#aaa", fontSize:11 }} tickFormatter={v=>`$${(v/1000).toFixed(1)}k`} />
               <YAxis type="category" dataKey="name" tick={{ fill:"#ccc", fontSize:11 }} width={180} />
               <Tooltip
-                contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }}
+                contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }}
                 formatter={v=>[fmtUSD(v),"Total"]}
               />
               <Bar dataKey="total" radius={[0,4,4,0]}>
