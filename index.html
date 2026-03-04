@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PayFlow · Payables Dashboard</title>
 
-  <!-- Dependencies in correct order -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #13131f; color: #e2e8f0; font-family: Inter, sans-serif; }
     @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+    @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #13131f; }
     ::-webkit-scrollbar-thumb { background: #2a2a3e; border-radius: 3px; }
@@ -29,73 +30,159 @@ const {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } = Recharts;
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useCallback } = React;
 
-// ── DATA ─────────────────────────────────────────────────────────────
+// ── SUPABASE CONFIG ──────────────────────────────────────────────────
+const SUPABASE_URL      = "https://supabase.vmi2895490.contaboserver.net";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY4MjE2MDA4LCJleHAiOjE5MjU4OTYwMDh9.xDBOx2KevB88iY8EcnuycDRVae5b8220UQm8Yshz_oM";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── COLORS ───────────────────────────────────────────────────────────
 const COLORS = ["#6366f1","#22d3ee","#f59e0b","#10b981","#ef4444","#a78bfa","#fb923c","#34d399"];
-
-const INITIAL_VENDORS = [
-  { name: "XPD GLOBAL VIETNAM",       total: 11194.14, count: 2  },
-  { name: "EXPEDITED AMERICA ESPAÑA",  total: 6575.16,  count: 1  },
-  { name: "AWOT GLOBAL CORP.",         total: 4904.36,  count: 1  },
-  { name: "GL Logistics",              total: 3700.00,  count: 1  },
-  { name: "XPD SHENZHEN (GZ)",         total: 3465.55,  count: 1  },
-  { name: "XPD SHENZHEN",              total: 2336.07,  count: 2  },
-  { name: "XPD GLOBAL USA",            total: 1745.00,  count: 2  },
-  { name: "EP AMERICA INC.",           total: 1250.00,  count: 2  },
-  { name: "JRF DELIVERY INC",          total: 995.00,   count: 11 },
-  { name: "INTL TRINITY CUSTOMS",      total: 985.00,   count: 11 },
-];
-
-const matchData = [
-  { name: "VAT Match",          pct: 98, matched: 47, total: 48 },
-  { name: "Currency Match",     pct: 98, matched: 47, total: 48 },
-  { name: "Total Match",        pct: 83, matched: 40, total: 48 },
-  { name: "Gross Match",        pct: 81, matched: 39, total: 48 },
-  { name: "Vendor Match",       pct: 58, matched: 28, total: 48 },
-  { name: "Terms Match",        pct: 44, matched: 21, total: 48 },
-  { name: "Due Date Match",     pct: 15, matched: 7,  total: 48 },
-  { name: "Payable Date Match", pct: 6,  matched: 3,  total: 48 },
-  { name: "Transport Match",    pct: 4,  matched: 2,  total: 48 },
-];
-
-const dueDateData = [
-  { name: "Vencidas",   value: 19, color: "#ef4444" },
-  { name: "Vencen Hoy", value: 3,  color: "#f59e0b" },
-  { name: "7 días",     value: 6,  color: "#fb923c" },
-  { name: "8–30 días",  value: 20, color: "#10b981" },
-];
-
-const overdueVendors = [
-  { name: "XPD GLOBAL VIETNAM",   amount: 1727.80, count: 1 },
-  { name: "XPD GLOBAL USA",       amount: 1195.00, count: 1 },
-  { name: "NEXUS TRADE CO LLC",   amount: 915.00,  count: 1 },
-  { name: "Super Cargo GS USA",   amount: 790.00,  count: 1 },
-  { name: "EP AMERICA INC.",      amount: 750.00,  count: 1 },
-  { name: "INTL TRINITY CUSTOMS", amount: 630.00,  count: 8 },
-  { name: "JRF DELIVERY INC",     amount: 570.00,  count: 5 },
-  { name: "XPD SHENZHEN",         amount: 416.00,  count: 1 },
-];
-
-const sapData = [
-  { name: "Synchronized", value: 25, color: "#10b981" },
-  { name: "Not Sent",     value: 22, color: "#ef4444" },
-  { name: "Sent",         value: 1,  color: "#f59e0b" },
-];
-
-const paymentTermsData = [
-  { name: "30 Days",          value: 34 },
-  { name: "20 Days",          value: 7  },
-  { name: "Due Upon Receipt", value: 3  },
-  { name: "21 Days",          value: 1  },
-];
-
 const INTERVALS = [
   { label: "30s",  value: 30  },
   { label: "1min", value: 60  },
   { label: "2min", value: 120 },
   { label: "5min", value: 300 },
 ];
+
+// ── DATA FETCHING ────────────────────────────────────────────────────
+async function fetchAllData() {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  // 1. Todos los registros de mails
+  const { data: mails, error: mailError } = await sb
+    .from("ap_usa_payables_mail")
+    .select("*");
+
+  if (mailError) throw new Error(mailError.message);
+
+  // 2. Registros de Salesforce para SAP status
+  const { data: sfRows } = await sb
+    .from("ap_payables_salesforce")
+    .select("sap_sync_status, mail_reference, vendor_name, total_incl_vat, matched");
+
+  // ── KPIs generales ──
+  const totalReg = mails.length;
+
+  // Totales por moneda
+  const byCurrency = {};
+  mails.forEach(m => {
+    const cur = m.currency || "USD";
+    if (!byCurrency[cur]) byCurrency[cur] = { total: 0, count: 0 };
+    byCurrency[cur].total += parseFloat(m.total) || 0;
+    byCurrency[cur].count += 1;
+  });
+
+  // Proveedores únicos
+  const uniqueVendors = new Set(mails.map(m => m.vendor).filter(Boolean)).size;
+
+  // Status counts
+  const statusCounts = {};
+  mails.forEach(m => {
+    const s = m.status || "UNKNOWN";
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  });
+
+  // ── Top 10 vendedores ──
+  const vendorMap = {};
+  mails.forEach(m => {
+    const v = m.vendor || "UNKNOWN";
+    if (!vendorMap[v]) vendorMap[v] = { name: v, total: 0, count: 0 };
+    vendorMap[v].total += parseFloat(m.total) || 0;
+    vendorMap[v].count += 1;
+  });
+  const topVendors = Object.values(vendorMap)
+    .sort((a,b) => b.total - a.total)
+    .slice(0, 10);
+
+  // ── Términos de pago ──
+  const termsMap = {};
+  mails.forEach(m => {
+    const t = m.terms || "Sin especificar";
+    termsMap[t] = (termsMap[t] || 0) + 1;
+  });
+  const paymentTermsData = Object.entries(termsMap)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a,b) => b.value - a.value)
+    .slice(0, 6);
+
+  // ── Due dates ──
+  let vencidas = 0, vencenHoy = 0, proximos7 = 0, proximos30 = 0;
+  const overdueMap = {};
+  let totalOverdue = 0;
+
+  mails.forEach(m => {
+    if (!m.due_date) return;
+    const due = new Date(m.due_date); due.setHours(0,0,0,0);
+    const diff = Math.floor((due - today) / 86400000);
+
+    if (diff < 0) {
+      vencidas++;
+      totalOverdue += parseFloat(m.total) || 0;
+      const v = m.vendor || "UNKNOWN";
+      if (!overdueMap[v]) overdueMap[v] = { name: v, amount: 0, count: 0 };
+      overdueMap[v].amount += parseFloat(m.total) || 0;
+      overdueMap[v].count += 1;
+    } else if (diff === 0) vencenHoy++;
+    else if (diff <= 7)    proximos7++;
+    else if (diff <= 30)   proximos30++;
+  });
+
+  const dueDateData = [
+    { name: "Vencidas",    value: vencidas,   color: "#ef4444" },
+    { name: "Vencen Hoy",  value: vencenHoy,  color: "#f59e0b" },
+    { name: "7 días",      value: proximos7,  color: "#fb923c" },
+    { name: "8–30 días",   value: proximos30, color: "#10b981" },
+  ].filter(d => d.value > 0);
+
+  const overdueVendors = Object.values(overdueMap)
+    .sort((a,b) => b.amount - a.amount)
+    .slice(0, 10);
+
+  // ── SAP status ──
+  const sapMap = {};
+  (sfRows || []).forEach(r => {
+    const s = r.sap_sync_status || "Not Sent";
+    sapMap[s] = (sapMap[s] || 0) + 1;
+  });
+  const sapColors = { "Synchronized":"#10b981", "Not Sent":"#ef4444", "Sent":"#f59e0b" };
+  const sapData = Object.entries(sapMap).map(([name, value]) => ({
+    name, value, color: sapColors[name] || "#6366f1"
+  }));
+
+  // ── Match fields desde match_details JSONB ──
+  const MATCH_FIELDS = [
+    { key: "total_incl_vat",  label: "Total Match"         },
+    { key: "total_vat",       label: "VAT Match"           },
+    { key: "currency",        label: "Currency Match"      },
+    { key: "total_gross",     label: "Gross Match"         },
+    { key: "vendor_name",     label: "Vendor Match"        },
+    { key: "payment_terms",   label: "Terms Match"         },
+    { key: "due_date",        label: "Due Date Match"      },
+    { key: "payable_date",    label: "Payable Date Match"  },
+    { key: "transport_order", label: "Transport Match"     },
+    { key: "invoice_number",  label: "Invoice # Match"     },
+  ];
+
+  const matchedMails = mails.filter(m => m.match_details && m.match_details.fields);
+  const matchTotal = matchedMails.length || 1;
+
+  const matchData = MATCH_FIELDS.map(({ key, label }) => {
+    const matched = matchedMails.filter(m => m.match_details.fields[key] === "match").length;
+    const pct = Math.round((matched / matchTotal) * 100);
+    return { name: label, pct, matched, total: matchTotal };
+  }).sort((a,b) => b.pct - a.pct);
+
+  return {
+    totalReg, byCurrency, uniqueVendors, statusCounts,
+    topVendors, paymentTermsData, dueDateData, overdueVendors,
+    totalOverdue, sapData, matchData,
+    vencidas, vencenHoy, proximos7, proximos30,
+  };
+}
 
 // ── COMPONENTS ───────────────────────────────────────────────────────
 const KPI = ({ title, value, sub, color }) => (
@@ -144,17 +231,19 @@ const Toast = ({ msg, visible, onClose }) => (
   </div>
 );
 
-const RefreshBar = ({ countdown, interval, paused, onToggle, onIntervalChange, lastUpdated }) => (
+const RefreshBar = ({ countdown, interval, paused, onToggle, onIntervalChange, lastUpdated, loading }) => (
   <div style={{ display:"flex", alignItems:"center", gap:12, padding:"7px 0 14px", fontSize:12, color:"#666", flexWrap:"wrap" }}>
     <span style={{ display:"flex", alignItems:"center", gap:6 }}>
       <span style={{
         width:7, height:7, borderRadius:"50%", display:"inline-block",
-        background: paused ? "#f59e0b" : "#10b981",
-        animation: paused ? "none" : "pulse 2s ease-in-out infinite",
+        background: loading ? "#6366f1" : paused ? "#f59e0b" : "#10b981",
+        animation: "pulse 2s ease-in-out infinite",
       }} />
-      {paused
-        ? <span style={{ color:"#f59e0b" }}>Auto-refresh pausado</span>
-        : <span>Próximo refresh en <strong style={{ color:"#e2e8f0" }}>{countdown}s</strong></span>
+      {loading
+        ? <span style={{ color:"#6366f1" }}>Actualizando datos...</span>
+        : paused
+          ? <span style={{ color:"#f59e0b" }}>Auto-refresh pausado</span>
+          : <span>Próximo refresh en <strong style={{ color:"#e2e8f0" }}>{countdown}s</strong></span>
       }
     </span>
     <div style={{ flex:1, maxWidth:160, height:3, background:"#2a2a3e", borderRadius:2, overflow:"hidden" }}>
@@ -175,51 +264,76 @@ const RefreshBar = ({ countdown, interval, paused, onToggle, onIntervalChange, l
   </div>
 );
 
+const ErrorBanner = ({ msg }) => (
+  <div style={{ background:"#2a1a1a", border:"1px solid #ef444466", borderRadius:10, padding:"12px 18px", marginBottom:16, color:"#ef4444", fontSize:13 }}>
+    ⚠️ Error conectando a Supabase: <strong>{msg}</strong>
+    <br/><span style={{ color:"#666", fontSize:11 }}>Verifica que el servidor esté accesible y que CORS esté habilitado.</span>
+  </div>
+);
+
 // ── DASHBOARD ────────────────────────────────────────────────────────
 function Dashboard() {
-  const [tab, setTab]                   = useState("overview");
-  const [vendors, setVendors]           = useState(INITIAL_VENDORS);
-  const [totalReg, setTotalReg]         = useState(48);
-  const [ivl, setIvl]                   = useState(60);
-  const [countdown, setCountdown]       = useState(60);
-  const [paused, setPaused]             = useState(false);
-  const [lastUpdated, setLastUpdated]   = useState(new Date().toLocaleTimeString("es-MX"));
-  const [toast, setToast]               = useState({ visible:false, msg:"" });
-  const cycleRef  = useRef(0);
-  const pausedRef = useRef(false);
-  const totalRef  = useRef(48);
+  const [tab, setTab]             = useState("overview");
+  const [data, setData]           = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [ivl, setIvl]             = useState(60);
+  const [countdown, setCountdown] = useState(60);
+  const [paused, setPaused]       = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [toast, setToast]         = useState({ visible:false, msg:"" });
+  const prevTotalRef = useRef(0);
+  const pausedRef    = useRef(false);
 
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchAllData();
+      setData(result);
+      setLastUpdated(new Date().toLocaleTimeString("es-MX"));
+      if (prevTotalRef.current > 0 && result.totalReg > prevTotalRef.current) {
+        const diff = result.totalReg - prevTotalRef.current;
+        setToast({ visible:true, msg:`${diff} nuevo(s) registro(s). Total: ${result.totalReg}` });
+        setTimeout(() => setToast(t => ({ ...t, visible:false })), 5000);
+      }
+      prevTotalRef.current = result.totalReg;
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
     setCountdown(ivl);
     const tick = setInterval(() => {
       if (pausedRef.current) return;
       setCountdown(prev => {
-        if (prev <= 1) { doSilentRefresh(); return ivl; }
+        if (prev <= 1) { loadData(); return ivl; }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(tick);
-  }, [ivl]);
+  }, [ivl, loadData]);
 
-  function doSilentRefresh() {
-    cycleRef.current += 1;
-    setLastUpdated(new Date().toLocaleTimeString("es-MX"));
-    if (cycleRef.current % 3 === 0) {
-      totalRef.current += 1;
-      const n = totalRef.current;
-      setTotalReg(n);
-      setVendors(prev => prev.map((v, i) =>
-        i === cycleRef.current % prev.length ? { ...v, total: v.total + 250, count: v.count + 1 } : v
-      ));
-      setToast({ visible:true, msg:`1 nuevo registro detectado. Total: ${n} entradas.` });
-      setTimeout(() => setToast(t => ({ ...t, visible:false })), 5000);
-    }
-  }
-
-  const TABS = ["overview","vencimientos","conciliación","proveedores"];
+  const TABS   = ["overview","vencimientos","conciliación","proveedores"];
   const LABELS = { overview:"Resumen", vencimientos:"Vencimientos", conciliación:"Conciliación", proveedores:"Proveedores" };
+
+  const fmtUSD = v => `$${(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const fmtNum = v => (v||0).toLocaleString("en-US",{minimumFractionDigits:2});
+
+  const d = data || {};
+  const usdInfo   = d.byCurrency?.USD || { total:0, count:0 };
+  const eurInfo   = d.byCurrency?.EUR || { total:0, count:0 };
+  const matchedCount = d.statusCounts?.MATCHED   || 0;
+  const partialCount = d.statusCounts?.PARTIAL   || 0;
+  const pendingCount = d.statusCounts?.PENDING   || 0;
+  const incompCount  = d.statusCounts?.INCOMPLETE|| 0;
 
   return (
     <div style={{ background:"#13131f", minHeight:"100vh", fontFamily:"Inter,sans-serif", color:"#e2e8f0", padding:24 }}>
@@ -227,13 +341,17 @@ function Dashboard() {
       {/* Header */}
       <div style={{ marginBottom:8 }}>
         <h1 style={{ fontSize:22, fontWeight:700, color:"#fff", margin:0 }}>📊 Payables Services — Análisis</h1>
-        <p style={{ color:"#666", fontSize:13, margin:"4px 0 0" }}>{totalReg} registros · Estado: PARTIAL · Corte al 03/Mar/2026</p>
+        <p style={{ color:"#666", fontSize:13, margin:"4px 0 0" }}>
+          {loading && !data ? "Cargando..." : `${d.totalReg || 0} registros · Hoy: ${new Date().toLocaleDateString("es-MX")}`}
+        </p>
       </div>
 
-      <RefreshBar countdown={countdown} interval={ivl} paused={paused}
+      <RefreshBar countdown={countdown} interval={ivl} paused={paused} loading={loading}
         onToggle={() => setPaused(p => !p)}
         onIntervalChange={val => { setIvl(val); setCountdown(val); }}
         lastUpdated={lastUpdated} />
+
+      {error && <ErrorBanner msg={error} />}
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:8, marginBottom:24, borderBottom:"1px solid #2a2a3e", paddingBottom:12 }}>
@@ -247,36 +365,52 @@ function Dashboard() {
         ))}
       </div>
 
+      {/* Loading */}
+      {loading && !data && (
+        <div style={{ textAlign:"center", padding:60, color:"#555" }}>
+          <div style={{ width:36, height:36, border:"3px solid #6366f133", borderTopColor:"#6366f1", borderRadius:"50%", animation:"spin 0.8s linear infinite", margin:"0 auto 16px" }} />
+          Conectando con Supabase...
+        </div>
+      )}
+
       {/* ── RESUMEN ── */}
-      {tab==="overview" && <>
+      {tab==="overview" && data && <>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:4 }}>
-          <KPI title="Total Registros" value={totalReg}  sub="Todos en estado PARTIAL" color="#6366f1" />
-          <KPI title="Total USD"       value="$34,356"   sub="45 facturas"             color="#22d3ee" />
-          <KPI title="Total EUR"       value="€6,957"    sub="3 facturas"              color="#f59e0b" />
-          <KPI title="Proveedores"     value="21"        sub="activos"                 color="#10b981" />
+          <KPI title="Total Registros" value={d.totalReg}            sub={`${d.uniqueVendors} proveedores activos`}   color="#6366f1" />
+          <KPI title="Total USD"       value={fmtUSD(usdInfo.total)} sub={`${usdInfo.count} facturas`}                color="#22d3ee" />
+          {eurInfo.count > 0 &&
+            <KPI title="Total EUR"     value={`€${fmtNum(eurInfo.total)}`} sub={`${eurInfo.count} facturas`}          color="#f59e0b" />
+          }
+          <KPI title="Vencidas"        value={d.vencidas||0}         sub={fmtUSD(d.totalOverdue) + " en riesgo"}      color="#ef4444" />
         </div>
-        <SectionTitle>Estado SAP</SectionTitle>
+
+        <SectionTitle>Estado de Registros</SectionTitle>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
-          <KPI title="Synchronized" value="25" sub="52% del total"          color="#10b981" />
-          <KPI title="Not Sent"     value="22" sub="46% — requieren acción" color="#ef4444" />
-          <KPI title="Sent"         value="1"  sub="2%"                     color="#f59e0b" />
+          <KPI title="Matched"    value={matchedCount} sub="Conciliados con SF"  color="#10b981" />
+          <KPI title="Partial"    value={partialCount} sub="Match parcial"       color="#f59e0b" />
+          <KPI title="Pending"    value={pendingCount} sub="Sin conciliar"       color="#6366f1" />
+          <KPI title="Incomplete" value={incompCount}  sub="Datos insuficientes" color="#ef4444" />
         </div>
+
         <SectionTitle>Distribución SAP & Términos de Pago</SectionTitle>
         <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
           <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, flex:1, minWidth:280 }}>
             <div style={{ color:"#aaa", fontSize:12, marginBottom:12, textTransform:"uppercase" }}>SAP Status</div>
-            <PieChart width={260} height={200}>
-              <Pie data={sapData} cx={130} cy={90} outerRadius={80} dataKey="value"
-                label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                {sapData.map((e,i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
-            </PieChart>
+            {(d.sapData||[]).length > 0
+              ? <PieChart width={260} height={200}>
+                  <Pie data={d.sapData} cx={130} cy={90} outerRadius={80} dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                    {(d.sapData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
+                </PieChart>
+              : <div style={{ color:"#555", fontSize:13, paddingTop:60, textAlign:"center" }}>Sin datos SAP</div>
+            }
           </div>
           <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, flex:1, minWidth:280 }}>
             <div style={{ color:"#aaa", fontSize:12, marginBottom:12, textTransform:"uppercase" }}>Términos de Pago</div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={paymentTermsData} margin={{ top:0, bottom:0, left:-10, right:10 }}>
+              <BarChart data={d.paymentTermsData||[]} margin={{ top:0, bottom:0, left:-10, right:10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                 <XAxis dataKey="name" tick={{ fill:"#aaa", fontSize:11 }} />
                 <YAxis tick={{ fill:"#aaa", fontSize:11 }} />
@@ -289,24 +423,26 @@ function Dashboard() {
       </>}
 
       {/* ── VENCIMIENTOS ── */}
-      {tab==="vencimientos" && <>
+      {tab==="vencimientos" && data && <>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
-          <KPI title="🔴 Vencidas"        value="19" sub="$7,998.80 en riesgo" color="#ef4444" />
-          <KPI title="🟡 Vencen Hoy"      value="3"  sub="03/Mar/2026"         color="#f59e0b" />
-          <KPI title="🟠 Próximos 7 días" value="6"  sub="Urgente"             color="#fb923c" />
-          <KPI title="🟢 8–30 días"       value="20" sub="Tiempo disponible"   color="#10b981" />
+          <KPI title="🔴 Vencidas"        value={d.vencidas||0}   sub={fmtUSD(d.totalOverdue) + " en riesgo"} color="#ef4444" />
+          <KPI title="🟡 Vencen Hoy"      value={d.vencenHoy||0}  sub={new Date().toLocaleDateString("es-MX")} color="#f59e0b" />
+          <KPI title="🟠 Próximos 7 días" value={d.proximos7||0}  sub="Urgente"                               color="#fb923c" />
+          <KPI title="🟢 8–30 días"       value={d.proximos30||0} sub="Tiempo disponible"                     color="#10b981" />
         </div>
+
         <SectionTitle>Distribución por Fecha de Vencimiento</SectionTitle>
         <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, marginBottom:20 }}>
           <PieChart width={360} height={240}>
-            <Pie data={dueDateData} cx={180} cy={110} outerRadius={90} dataKey="value"
+            <Pie data={d.dueDateData||[]} cx={180} cy={110} outerRadius={90} dataKey="value"
               label={({ name, value }) => `${name} (${value})`}>
-              {dueDateData.map((e,i) => <Cell key={i} fill={e.color} />)}
+              {(d.dueDateData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
             </Pie>
             <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }} />
             <Legend wrapperStyle={{ color:"#aaa", fontSize:13 }} />
           </PieChart>
         </div>
+
         <SectionTitle>Facturas Vencidas por Proveedor</SectionTitle>
         <div style={{ background:"#1e1e2e", borderRadius:12, overflow:"hidden" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
@@ -319,13 +455,11 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {overdueVendors.map((v,i) => (
+              {(d.overdueVendors||[]).map((v,i) => (
                 <tr key={i} style={{ borderTop:"1px solid #2a2a3e" }}>
                   <td style={{ padding:"10px 16px", color:"#e2e8f0" }}>{v.name}</td>
                   <td style={{ padding:"10px 16px", textAlign:"right", color:"#aaa" }}>{v.count}</td>
-                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#ef4444", fontWeight:600 }}>
-                    ${v.amount.toLocaleString("en-US",{minimumFractionDigits:2})}
-                  </td>
+                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#ef4444", fontWeight:600 }}>{fmtUSD(v.amount)}</td>
                   <td style={{ padding:"10px 16px", textAlign:"center" }}>
                     <span style={{
                       background: v.amount>1000 ? "#ef444422" : "#f59e0b22",
@@ -335,57 +469,66 @@ function Dashboard() {
                   </td>
                 </tr>
               ))}
+              {(d.overdueVendors||[]).length === 0 &&
+                <tr><td colSpan={4} style={{ padding:24, textAlign:"center", color:"#555" }}>✅ Sin facturas vencidas</td></tr>
+              }
             </tbody>
           </table>
         </div>
       </>}
 
       {/* ── CONCILIACIÓN ── */}
-      {tab==="conciliación" && <>
-        <div style={{ background:"#1e2a1e", border:"1px solid #10b98133", borderRadius:12, padding:"14px 18px", marginBottom:20 }}>
-          <p style={{ margin:0, color:"#10b981", fontSize:13 }}>
-            ⚠️ <strong>Atención:</strong> Todos los 48 registros tienen estatus <strong>PARTIAL</strong>, lo que indica discrepancias en al menos un campo de conciliación contra Salesforce.
-          </p>
+      {tab==="conciliación" && data && <>
+        <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:20 }}>
+          <KPI title="Analizados"  value={(d.matchData||[])[0]?.total || 0} sub="Con match_details"  color="#6366f1" />
+          <KPI title="Matched"     value={matchedCount} sub="Match perfecto"    color="#10b981" />
+          <KPI title="Partial"     value={partialCount} sub="Match parcial"     color="#f59e0b" />
+          <KPI title="Sin match"   value={pendingCount + incompCount} sub="Pendientes" color="#ef4444" />
         </div>
+
         <SectionTitle>Porcentaje de Coincidencia por Campo</SectionTitle>
         <div style={{ background:"#1e1e2e", borderRadius:12, padding:20 }}>
-          {matchData.map((m,i) => <CustomMatchBar key={i} {...m} />)}
+          {(d.matchData||[]).length > 0
+            ? (d.matchData||[]).map((m,i) => <CustomMatchBar key={i} {...m} />)
+            : <div style={{ color:"#555", textAlign:"center", padding:40 }}>Sin datos de conciliación aún.</div>
+          }
         </div>
-        <SectionTitle>Campos Críticos con Baja Coincidencia</SectionTitle>
+
+        <SectionTitle>Campos con Baja Coincidencia (&lt;50%)</SectionTitle>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-          {[
-            { field:"Transport Match",    pct:4,  note:"Solo 2 de 48 coinciden. Probable diferencia en número de OT." },
-            { field:"Payable Date Match", pct:6,  note:"Alta disparidad en fechas de pago registradas." },
-            { field:"Due Date Match",     pct:15, note:"Las fechas de vencimiento en SF difieren notablemente." },
-          ].map((item,i) => (
+          {(d.matchData||[]).filter(m => m.pct < 50).slice(0,3).map((item,i) => (
             <div key={i} style={{ background:"#2a1a1a", border:"1px solid #ef444433", borderRadius:12, padding:"14px 18px", flex:1, minWidth:200 }}>
-              <div style={{ color:"#ef4444", fontWeight:600, fontSize:14 }}>{item.field}</div>
+              <div style={{ color:"#ef4444", fontWeight:600, fontSize:14 }}>{item.name}</div>
               <div style={{ color:"#ef4444", fontSize:24, fontWeight:700, margin:"6px 0" }}>{item.pct}%</div>
-              <div style={{ color:"#aaa", fontSize:12 }}>{item.note}</div>
+              <div style={{ color:"#aaa", fontSize:12 }}>{item.matched} de {item.total} registros coinciden.</div>
             </div>
           ))}
+          {(d.matchData||[]).filter(m => m.pct < 50).length === 0 &&
+            <div style={{ color:"#10b981", padding:16 }}>✅ Todos los campos superan el 50% de coincidencia.</div>
+          }
         </div>
       </>}
 
       {/* ── PROVEEDORES ── */}
-      {tab==="proveedores" && <>
+      {tab==="proveedores" && data && <>
         <SectionTitle>Top 10 Proveedores por Monto Total</SectionTitle>
         <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, marginBottom:20 }}>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={vendors} layout="vertical" margin={{ left:10, right:30, top:0, bottom:0 }}>
+            <BarChart data={d.topVendors||[]} layout="vertical" margin={{ left:10, right:30, top:0, bottom:0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" horizontal={false} />
               <XAxis type="number" tick={{ fill:"#aaa", fontSize:11 }} tickFormatter={v=>`$${(v/1000).toFixed(1)}k`} />
-              <YAxis type="category" dataKey="name" tick={{ fill:"#ccc", fontSize:11 }} width={160} />
+              <YAxis type="category" dataKey="name" tick={{ fill:"#ccc", fontSize:11 }} width={180} />
               <Tooltip
                 contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8 }}
-                formatter={v=>[`$${v.toLocaleString("en-US",{minimumFractionDigits:2})}`,"Total"]}
+                formatter={v=>[fmtUSD(v),"Total"]}
               />
-              <Bar dataKey="total" fill="#6366f1" radius={[0,4,4,0]}>
-                {vendors.map((_,i) => <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+              <Bar dataKey="total" radius={[0,4,4,0]}>
+                {(d.topVendors||[]).map((_,i) => <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
+
         <SectionTitle>Detalle por Proveedor</SectionTitle>
         <div style={{ background:"#1e1e2e", borderRadius:12, overflow:"hidden" }}>
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
@@ -399,17 +542,13 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {vendors.map((v,i) => (
+              {(d.topVendors||[]).map((v,i) => (
                 <tr key={i} style={{ borderTop:"1px solid #2a2a3e" }}>
                   <td style={{ padding:"10px 16px", color:"#555" }}>{i+1}</td>
                   <td style={{ padding:"10px 16px", color:"#e2e8f0" }}>{v.name}</td>
                   <td style={{ padding:"10px 16px", textAlign:"right", color:"#aaa" }}>{v.count}</td>
-                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#22d3ee", fontWeight:600 }}>
-                    ${v.total.toLocaleString("en-US",{minimumFractionDigits:2})}
-                  </td>
-                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#888" }}>
-                    ${(v.total/v.count).toLocaleString("en-US",{minimumFractionDigits:2})}
-                  </td>
+                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#22d3ee", fontWeight:600 }}>{fmtUSD(v.total)}</td>
+                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#888" }}>{fmtUSD(v.total/v.count)}</td>
                 </tr>
               ))}
             </tbody>
