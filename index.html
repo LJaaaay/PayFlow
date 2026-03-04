@@ -10,7 +10,6 @@
   <script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,13 +31,10 @@ const {
 } = Recharts;
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ── SUPABASE CONFIG ──────────────────────────────────────────────────
-const SUPABASE_URL      = "http://157.173.199.130:8000/";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY4MjE2MDA4LCJleHAiOjE5MjU4OTYwMDh9.xDBOx2KevB88iY8EcnuycDRVae5b8220UQm8Yshz_oM";
+// ── CONFIG ───────────────────────────────────────────────────────────
+// Reemplaza con tu URL real después de activar el webhook en n8n
+const WEBHOOK_URL = "https://n8n-n8n.9oqaim.easypanel.host/webhook/dashboard-data";
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// ── COLORS ───────────────────────────────────────────────────────────
 const COLORS = ["#6366f1","#22d3ee","#f59e0b","#10b981","#ef4444","#a78bfa","#fb923c","#34d399"];
 const INTERVALS = [
   { label: "30s",  value: 30  },
@@ -47,141 +43,11 @@ const INTERVALS = [
   { label: "5min", value: 300 },
 ];
 
-// ── DATA FETCHING ────────────────────────────────────────────────────
-async function fetchAllData() {
-  const today = new Date();
-  today.setHours(0,0,0,0);
-
-  // 1. Todos los registros de mails
-  const { data: mails, error: mailError } = await sb
-    .from("ap_usa_payables_mail")
-    .select("*");
-
-  if (mailError) throw new Error(mailError.message);
-
-  // 2. Registros de Salesforce para SAP status
-  const { data: sfRows } = await sb
-    .from("ap_payables_salesforce")
-    .select("sap_sync_status, mail_reference, vendor_name, total_incl_vat, matched");
-
-  // ── KPIs generales ──
-  const totalReg = mails.length;
-
-  // Totales por moneda
-  const byCurrency = {};
-  mails.forEach(m => {
-    const cur = m.currency || "USD";
-    if (!byCurrency[cur]) byCurrency[cur] = { total: 0, count: 0 };
-    byCurrency[cur].total += parseFloat(m.total) || 0;
-    byCurrency[cur].count += 1;
-  });
-
-  // Proveedores únicos
-  const uniqueVendors = new Set(mails.map(m => m.vendor).filter(Boolean)).size;
-
-  // Status counts
-  const statusCounts = {};
-  mails.forEach(m => {
-    const s = m.status || "UNKNOWN";
-    statusCounts[s] = (statusCounts[s] || 0) + 1;
-  });
-
-  // ── Top 10 vendedores ──
-  const vendorMap = {};
-  mails.forEach(m => {
-    const v = m.vendor || "UNKNOWN";
-    if (!vendorMap[v]) vendorMap[v] = { name: v, total: 0, count: 0 };
-    vendorMap[v].total += parseFloat(m.total) || 0;
-    vendorMap[v].count += 1;
-  });
-  const topVendors = Object.values(vendorMap)
-    .sort((a,b) => b.total - a.total)
-    .slice(0, 10);
-
-  // ── Términos de pago ──
-  const termsMap = {};
-  mails.forEach(m => {
-    const t = m.terms || "Sin especificar";
-    termsMap[t] = (termsMap[t] || 0) + 1;
-  });
-  const paymentTermsData = Object.entries(termsMap)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a,b) => b.value - a.value)
-    .slice(0, 6);
-
-  // ── Due dates ──
-  let vencidas = 0, vencenHoy = 0, proximos7 = 0, proximos30 = 0;
-  const overdueMap = {};
-  let totalOverdue = 0;
-
-  mails.forEach(m => {
-    if (!m.due_date) return;
-    const due = new Date(m.due_date); due.setHours(0,0,0,0);
-    const diff = Math.floor((due - today) / 86400000);
-
-    if (diff < 0) {
-      vencidas++;
-      totalOverdue += parseFloat(m.total) || 0;
-      const v = m.vendor || "UNKNOWN";
-      if (!overdueMap[v]) overdueMap[v] = { name: v, amount: 0, count: 0 };
-      overdueMap[v].amount += parseFloat(m.total) || 0;
-      overdueMap[v].count += 1;
-    } else if (diff === 0) vencenHoy++;
-    else if (diff <= 7)    proximos7++;
-    else if (diff <= 30)   proximos30++;
-  });
-
-  const dueDateData = [
-    { name: "Vencidas",    value: vencidas,   color: "#ef4444" },
-    { name: "Vencen Hoy",  value: vencenHoy,  color: "#f59e0b" },
-    { name: "7 días",      value: proximos7,  color: "#fb923c" },
-    { name: "8–30 días",   value: proximos30, color: "#10b981" },
-  ].filter(d => d.value > 0);
-
-  const overdueVendors = Object.values(overdueMap)
-    .sort((a,b) => b.amount - a.amount)
-    .slice(0, 10);
-
-  // ── SAP status ──
-  const sapMap = {};
-  (sfRows || []).forEach(r => {
-    const s = r.sap_sync_status || "Not Sent";
-    sapMap[s] = (sapMap[s] || 0) + 1;
-  });
-  const sapColors = { "Synchronized":"#10b981", "Not Sent":"#ef4444", "Sent":"#f59e0b" };
-  const sapData = Object.entries(sapMap).map(([name, value]) => ({
-    name, value, color: sapColors[name] || "#6366f1"
-  }));
-
-  // ── Match fields desde match_details JSONB ──
-  const MATCH_FIELDS = [
-    { key: "total_incl_vat",  label: "Total Match"         },
-    { key: "total_vat",       label: "VAT Match"           },
-    { key: "currency",        label: "Currency Match"      },
-    { key: "total_gross",     label: "Gross Match"         },
-    { key: "vendor_name",     label: "Vendor Match"        },
-    { key: "payment_terms",   label: "Terms Match"         },
-    { key: "due_date",        label: "Due Date Match"      },
-    { key: "payable_date",    label: "Payable Date Match"  },
-    { key: "transport_order", label: "Transport Match"     },
-    { key: "invoice_number",  label: "Invoice # Match"     },
-  ];
-
-  const matchedMails = mails.filter(m => m.match_details && m.match_details.fields);
-  const matchTotal = matchedMails.length || 1;
-
-  const matchData = MATCH_FIELDS.map(({ key, label }) => {
-    const matched = matchedMails.filter(m => m.match_details.fields[key] === "match").length;
-    const pct = Math.round((matched / matchTotal) * 100);
-    return { name: label, pct, matched, total: matchTotal };
-  }).sort((a,b) => b.pct - a.pct);
-
-  return {
-    totalReg, byCurrency, uniqueVendors, statusCounts,
-    topVendors, paymentTermsData, dueDateData, overdueVendors,
-    totalOverdue, sapData, matchData,
-    vencidas, vencenHoy, proximos7, proximos30,
-  };
+// ── FETCH ────────────────────────────────────────────────────────────
+async function fetchDashboardData() {
+  const res = await fetch(WEBHOOK_URL);
+  if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+  return await res.json();
 }
 
 // ── COMPONENTS ───────────────────────────────────────────────────────
@@ -240,7 +106,7 @@ const RefreshBar = ({ countdown, interval, paused, onToggle, onIntervalChange, l
         animation: "pulse 2s ease-in-out infinite",
       }} />
       {loading
-        ? <span style={{ color:"#6366f1" }}>Actualizando datos...</span>
+        ? <span style={{ color:"#6366f1" }}>Consultando base de datos...</span>
         : paused
           ? <span style={{ color:"#f59e0b" }}>Auto-refresh pausado</span>
           : <span>Próximo refresh en <strong style={{ color:"#e2e8f0" }}>{countdown}s</strong></span>
@@ -266,8 +132,8 @@ const RefreshBar = ({ countdown, interval, paused, onToggle, onIntervalChange, l
 
 const ErrorBanner = ({ msg }) => (
   <div style={{ background:"#2a1a1a", border:"1px solid #ef444466", borderRadius:10, padding:"12px 18px", marginBottom:16, color:"#ef4444", fontSize:13 }}>
-    ⚠️ Error conectando a Supabase: <strong>{msg}</strong>
-    <br/><span style={{ color:"#666", fontSize:11 }}>Verifica que el servidor esté accesible y que CORS esté habilitado.</span>
+    ⚠️ Error cargando datos: <strong>{msg}</strong>
+    <br/><span style={{ color:"#666", fontSize:11 }}>Verifica que el workflow de n8n esté activo.</span>
   </div>
 );
 
@@ -291,7 +157,7 @@ function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchAllData();
+      const result = await fetchDashboardData();
       setData(result);
       setLastUpdated(new Date().toLocaleTimeString("es-MX"));
       if (prevTotalRef.current > 0 && result.totalReg > prevTotalRef.current) {
@@ -328,12 +194,6 @@ function Dashboard() {
   const fmtNum = v => (v||0).toLocaleString("en-US",{minimumFractionDigits:2});
 
   const d = data || {};
-  const usdInfo   = d.byCurrency?.USD || { total:0, count:0 };
-  const eurInfo   = d.byCurrency?.EUR || { total:0, count:0 };
-  const matchedCount = d.statusCounts?.MATCHED   || 0;
-  const partialCount = d.statusCounts?.PARTIAL   || 0;
-  const pendingCount = d.statusCounts?.PENDING   || 0;
-  const incompCount  = d.statusCounts?.INCOMPLETE|| 0;
 
   return (
     <div style={{ background:"#13131f", minHeight:"100vh", fontFamily:"Inter,sans-serif", color:"#e2e8f0", padding:24 }}>
@@ -369,27 +229,27 @@ function Dashboard() {
       {loading && !data && (
         <div style={{ textAlign:"center", padding:60, color:"#555" }}>
           <div style={{ width:36, height:36, border:"3px solid #6366f133", borderTopColor:"#6366f1", borderRadius:"50%", animation:"spin 0.8s linear infinite", margin:"0 auto 16px" }} />
-          Conectando con Supabase...
+          Conectando con n8n...
         </div>
       )}
 
       {/* ── RESUMEN ── */}
       {tab==="overview" && data && <>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:4 }}>
-          <KPI title="Total Registros" value={d.totalReg}            sub={`${d.uniqueVendors} proveedores activos`}   color="#6366f1" />
-          <KPI title="Total USD"       value={fmtUSD(usdInfo.total)} sub={`${usdInfo.count} facturas`}                color="#22d3ee" />
-          {eurInfo.count > 0 &&
-            <KPI title="Total EUR"     value={`€${fmtNum(eurInfo.total)}`} sub={`${eurInfo.count} facturas`}          color="#f59e0b" />
+          <KPI title="Total Registros" value={d.totalReg}             sub={`${d.uniqueVendors} proveedores activos`}  color="#6366f1" />
+          <KPI title="Total USD"       value={fmtUSD(d.totalUSD)}     sub={`${d.countUSD} facturas`}                  color="#22d3ee" />
+          {d.countEUR > 0 &&
+            <KPI title="Total EUR"     value={`€${fmtNum(d.totalEUR)}`} sub={`${d.countEUR} facturas`}               color="#f59e0b" />
           }
-          <KPI title="Vencidas"        value={d.vencidas||0}         sub={fmtUSD(d.totalOverdue) + " en riesgo"}      color="#ef4444" />
+          <KPI title="Vencidas"        value={d.vencidas||0}          sub={fmtUSD(d.totalOverdue) + " en riesgo"}     color="#ef4444" />
         </div>
 
         <SectionTitle>Estado de Registros</SectionTitle>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
-          <KPI title="Matched"    value={matchedCount} sub="Conciliados con SF"  color="#10b981" />
-          <KPI title="Partial"    value={partialCount} sub="Match parcial"       color="#f59e0b" />
-          <KPI title="Pending"    value={pendingCount} sub="Sin conciliar"       color="#6366f1" />
-          <KPI title="Incomplete" value={incompCount}  sub="Datos insuficientes" color="#ef4444" />
+          <KPI title="Matched"    value={d.matched||0}    sub="Conciliados con SF"  color="#10b981" />
+          <KPI title="Partial"    value={d.partial||0}    sub="Match parcial"       color="#f59e0b" />
+          <KPI title="Pending"    value={d.pending||0}    sub="Sin conciliar"       color="#6366f1" />
+          <KPI title="Incomplete" value={d.incomplete||0} sub="Datos insuficientes" color="#ef4444" />
         </div>
 
         <SectionTitle>Distribución SAP & Términos de Pago</SectionTitle>
@@ -481,9 +341,9 @@ function Dashboard() {
       {tab==="conciliación" && data && <>
         <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:20 }}>
           <KPI title="Analizados"  value={(d.matchData||[])[0]?.total || 0} sub="Con match_details"  color="#6366f1" />
-          <KPI title="Matched"     value={matchedCount} sub="Match perfecto"    color="#10b981" />
-          <KPI title="Partial"     value={partialCount} sub="Match parcial"     color="#f59e0b" />
-          <KPI title="Sin match"   value={pendingCount + incompCount} sub="Pendientes" color="#ef4444" />
+          <KPI title="Matched"     value={d.matched||0}    sub="Match perfecto"    color="#10b981" />
+          <KPI title="Partial"     value={d.partial||0}    sub="Match parcial"     color="#f59e0b" />
+          <KPI title="Sin match"   value={(d.pending||0) + (d.incomplete||0)} sub="Pendientes" color="#ef4444" />
         </div>
 
         <SectionTitle>Porcentaje de Coincidencia por Campo</SectionTitle>
@@ -504,7 +364,7 @@ function Dashboard() {
             </div>
           ))}
           {(d.matchData||[]).filter(m => m.pct < 50).length === 0 &&
-            <div style={{ color:"#10b981", padding:16 }}>✅ Todos los campos superan el 50% de coincidencia.</div>
+            <div style={{ color:"#10b981", padding:16 }}>✅ Todos los campos superan el 50%.</div>
           }
         </div>
       </>}
@@ -548,7 +408,7 @@ function Dashboard() {
                   <td style={{ padding:"10px 16px", color:"#e2e8f0" }}>{v.name}</td>
                   <td style={{ padding:"10px 16px", textAlign:"right", color:"#aaa" }}>{v.count}</td>
                   <td style={{ padding:"10px 16px", textAlign:"right", color:"#22d3ee", fontWeight:600 }}>{fmtUSD(v.total)}</td>
-                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#888" }}>{fmtUSD(v.total/v.count)}</td>
+                  <td style={{ padding:"10px 16px", textAlign:"right", color:"#888" }}>{fmtUSD(v.total / v.count)}</td>
                 </tr>
               ))}
             </tbody>
