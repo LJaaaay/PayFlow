@@ -297,11 +297,6 @@ function Dashboard() {
 
       {/* ── RESUMEN ── */}
       {tab==="overview" && data && <>
-        <SinContraparteAlert
-          total={d.scTotal||0} vencidas={d.scVencidas||0} vencenHoy={d.scVencenHoy||0}
-          proximos7={d.scProximos7||0} proximos30={d.scProximos30||0}
-          totalVencido={d.scTotalVencido||0} fmtUSD={fmtUSD}
-        />
         <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:4 }}>
           <KPI title="Total Registros" value={d.totalReg}             sub={`${d.uniqueVendors} proveedores activos`}  color="#6366f1" />
           <KPI title="Total USD"       value={fmtUSD(d.totalUSD)}     sub={`${d.countUSD} facturas`}                  color="#22d3ee" />
