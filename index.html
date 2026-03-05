@@ -32,7 +32,6 @@ const {
 const { useState, useEffect, useRef, useCallback } = React;
 
 // ── CONFIG ───────────────────────────────────────────────────────────
-// Reemplaza con tu URL real después de activar el webhook en n8n
 const WEBHOOK_URL = "https://n8n-n8n.9oqaim.easypanel.host/webhook/dashboard-data";
 
 const COLORS = ["#6366f1","#22d3ee","#f59e0b","#10b981","#ef4444","#a78bfa","#fb923c","#34d399"];
@@ -42,6 +41,19 @@ const INTERVALS = [
   { label: "2min", value: 120 },
   { label: "5min", value: 300 },
 ];
+
+// ── Tooltip style shared across ALL charts ───────────────────────────
+// Main label → white, value/items → blue (#60a5fa)
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    background: "#1e1e2e",
+    border: "1px solid #333",
+    borderRadius: 8,
+    color: "#ffffff",
+  },
+  labelStyle: { color: "#ffffff", fontWeight: 600, marginBottom: 4 },
+  itemStyle:  { color: "#60a5fa" },
+};
 
 // ── FETCH ────────────────────────────────────────────────────────────
 async function fetchDashboardData() {
@@ -136,6 +148,56 @@ const ErrorBanner = ({ msg }) => (
     <br/><span style={{ color:"#666", fontSize:11 }}>Verifica que el workflow de n8n esté activo.</span>
   </div>
 );
+
+// Alerta de registros sin contraparte en SF próximos a vencer
+const SinContraparteAlert = ({ total, vencidas, vencenHoy, proximos7, proximos30, totalVencido, fmtUSD }) => {
+  const hayUrgentes = (vencidas + vencenHoy + proximos7) > 0;
+  if (!total) return null;
+  return (
+    <div style={{
+      background: hayUrgentes ? "#1f1510" : "#111827",
+      border: `1px solid ${hayUrgentes ? "#f59e0b66" : "#374151"}`,
+      borderRadius: 12, padding: "16px 20px", marginBottom: 20,
+    }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+        <span style={{ fontSize:18 }}>⚠️</span>
+        <div>
+          <div style={{ color: hayUrgentes ? "#f59e0b" : "#9ca3af", fontWeight:700, fontSize:14 }}>
+            Registros sin contraparte en Salesforce
+          </div>
+          <div style={{ color:"#6b7280", fontSize:12, marginTop:1 }}>
+            {total} registro{total !== 1 ? "s" : ""} en mail no tienen match en SF · {fmtUSD(totalVencido)} en riesgo
+          </div>
+        </div>
+        {/* Badge total */}
+        <div style={{
+          marginLeft:"auto", background: hayUrgentes ? "#f59e0b22" : "#374151",
+          color: hayUrgentes ? "#f59e0b" : "#9ca3af",
+          borderRadius: 8, padding:"4px 14px", fontSize:13, fontWeight:700,
+        }}>{total} sin SF</div>
+      </div>
+
+      {/* Mini KPIs */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        {[
+          { label:"🔴 Vencidas",     value: vencidas,   color:"#ef4444" },
+          { label:"🟡 Vencen Hoy",   value: vencenHoy,  color:"#f59e0b" },
+          { label:"🟠 Próx. 7 días", value: proximos7,  color:"#fb923c" },
+          { label:"🟢 8–30 días",    value: proximos30, color:"#10b981" },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{
+            flex:1, minWidth:110, background:"#1e1e2e", borderRadius:8,
+            padding:"10px 14px", border:`1px solid ${color}22`,
+          }}>
+            <div style={{ color:"#6b7280", fontSize:11, marginBottom:4 }}>{label}</div>
+            <div style={{ color: value > 0 ? color : "#374151", fontSize:22, fontWeight:700 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // ── DASHBOARD ────────────────────────────────────────────────────────
 function Dashboard() {
@@ -235,6 +297,11 @@ function Dashboard() {
 
       {/* ── RESUMEN ── */}
       {tab==="overview" && data && <>
+        <SinContraparteAlert
+          total={d.scTotal||0} vencidas={d.scVencidas||0} vencenHoy={d.scVencenHoy||0}
+          proximos7={d.scProximos7||0} proximos30={d.scProximos30||0}
+          totalVencido={d.scTotalVencido||0} fmtUSD={fmtUSD}
+        />
         <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:4 }}>
           <KPI title="Total Registros" value={d.totalReg}             sub={`${d.uniqueVendors} proveedores activos`}  color="#6366f1" />
           <KPI title="Total USD"       value={fmtUSD(d.totalUSD)}     sub={`${d.countUSD} facturas`}                  color="#22d3ee" />
@@ -261,7 +328,11 @@ function Dashboard() {
                   <Pie data={d.sapData} cx={140} cy={90} outerRadius={75} dataKey="value">
                     {(d.sapData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE.contentStyle}
+                    labelStyle={TOOLTIP_STYLE.labelStyle}
+                    itemStyle={TOOLTIP_STYLE.itemStyle}
+                  />
                   <Legend wrapperStyle={{ color:"#ccc", fontSize:13 }} />
                 </PieChart>
               : <div style={{ color:"#555", fontSize:13, paddingTop:60, textAlign:"center" }}>Sin datos SAP</div>
@@ -274,7 +345,11 @@ function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                 <XAxis dataKey="name" tick={{ fill:"#aaa", fontSize:11 }} />
                 <YAxis tick={{ fill:"#aaa", fontSize:11 }} />
-                <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE.contentStyle}
+                  labelStyle={TOOLTIP_STYLE.labelStyle}
+                  itemStyle={TOOLTIP_STYLE.itemStyle}
+                />
                 <Bar dataKey="value" fill="#6366f1" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -291,15 +366,40 @@ function Dashboard() {
           <KPI title="🟢 8–30 días"       value={d.proximos30||0} sub="Tiempo disponible"                     color="#10b981" />
         </div>
 
+        <SectionTitle>Sin Contraparte en Salesforce</SectionTitle>
+        <SinContraparteAlert
+          total={d.scTotal||0} vencidas={d.scVencidas||0} vencenHoy={d.scVencenHoy||0}
+          proximos7={d.scProximos7||0} proximos30={d.scProximos30||0}
+          totalVencido={d.scTotalVencido||0} fmtUSD={fmtUSD}
+        />
+
         <SectionTitle>Distribución por Fecha de Vencimiento</SectionTitle>
-        <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, marginBottom:20 }}>
-          <PieChart width={360} height={240}>
-            <Pie data={d.dueDateData||[]} cx={180} cy={110} outerRadius={90} dataKey="value"
-              label={({ name, value }) => `${name} (${value})`}>
+
+        {/* Centered container with fixed width so the chart doesn't stretch */}
+        <div style={{ background:"#1e1e2e", borderRadius:12, padding:20, marginBottom:20, display:"flex", flexDirection:"column", alignItems:"center" }}>
+          <PieChart width={420} height={280}>
+            <Pie
+              data={d.dueDateData||[]}
+              cx={210}
+              cy={120}
+              outerRadius={100}
+              dataKey="value"
+              /* No label prop → eliminates overlapping text on slices */
+            >
               {(d.dueDateData||[]).map((e,i) => <Cell key={i} fill={e.color} />)}
             </Pie>
-            <Tooltip contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }} />
-            <Legend wrapperStyle={{ color:"#aaa", fontSize:13 }} />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE.contentStyle}
+              labelStyle={TOOLTIP_STYLE.labelStyle}
+              itemStyle={TOOLTIP_STYLE.itemStyle}
+              formatter={(value, name) => [`${value} facturas`, name]}
+            />
+            {/* Legend below the chart, spaced out */}
+            <Legend
+              wrapperStyle={{ color:"#aaa", fontSize:13, paddingTop:12 }}
+              iconType="circle"
+              iconSize={10}
+            />
           </PieChart>
         </div>
 
@@ -379,7 +479,9 @@ function Dashboard() {
               <XAxis type="number" tick={{ fill:"#aaa", fontSize:11 }} tickFormatter={v=>`$${(v/1000).toFixed(1)}k`} />
               <YAxis type="category" dataKey="name" tick={{ fill:"#ccc", fontSize:11 }} width={180} />
               <Tooltip
-                contentStyle={{ background:"#1e1e2e", border:"1px solid #333", borderRadius:8, color:"#e2e8f0" }}
+                contentStyle={TOOLTIP_STYLE.contentStyle}
+                labelStyle={TOOLTIP_STYLE.labelStyle}
+                itemStyle={TOOLTIP_STYLE.itemStyle}
                 formatter={v=>[fmtUSD(v),"Total"]}
               />
               <Bar dataKey="total" radius={[0,4,4,0]}>
